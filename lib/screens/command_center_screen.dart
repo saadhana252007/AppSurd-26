@@ -1,4 +1,3 @@
-
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -50,10 +49,10 @@ class _CommandCenterScreenState extends State<CommandCenterScreen> {
     savedEvents.sort((a, b) {
       final aTime =
           DateTime.tryParse('${a['timestamp'] ?? ''}') ??
-              DateTime.fromMillisecondsSinceEpoch(0);
+          DateTime.fromMillisecondsSinceEpoch(0);
       final bTime =
           DateTime.tryParse('${b['timestamp'] ?? ''}') ??
-              DateTime.fromMillisecondsSinceEpoch(0);
+          DateTime.fromMillisecondsSinceEpoch(0);
       return bTime.compareTo(aTime);
     });
 
@@ -66,11 +65,9 @@ class _CommandCenterScreenState extends State<CommandCenterScreen> {
     });
   }
 
-  int get activeCount =>
-      tasks.where((t) => t['status'] == 'Pending').length;
+  int get activeCount => tasks.where((t) => t['status'] == 'Pending').length;
 
-  int get verifiedCount =>
-      tasks.where((t) => t['status'] == 'Verified').length;
+  int get verifiedCount => tasks.where((t) => t['status'] == 'Verified').length;
 
   int get correctionCount =>
       tasks.where((t) => t['status'] == 'Needs Correction').length;
@@ -108,9 +105,7 @@ class _CommandCenterScreenState extends State<CommandCenterScreen> {
 
       final date = DateTime.tryParse(raw.toString());
       if (date != null) {
-        verifiedDays.add(
-          '${date.year}-${date.month}-${date.day}',
-        );
+        verifiedDays.add('${date.year}-${date.month}-${date.day}');
       }
     }
 
@@ -288,162 +283,162 @@ class _CommandCenterScreenState extends State<CommandCenterScreen> {
         child: loading
             ? const Center(child: CircularProgressIndicator())
             : RefreshIndicator(
-          onRefresh: loadData,
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(12, 8, 12, 18),
-            children: [
-              sectionLabel('Command Center'),
-              const SizedBox(height: 6),
-              const Text(
-                'Proof, not promises.',
-                style: TextStyle(
-                  color: AppTheme.text,
-                  fontSize: 20,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: -0.5,
-                ),
-              ),
-              const SizedBox(height: 4),
-              const Text(
-                'Turn tasks into verifiable outcomes.',
-                style: TextStyle(
-                  color: AppTheme.secondaryText,
-                  fontSize: 11,
-                ),
-              ),
-              const SizedBox(height: 13),
-              ElevatedButton.icon(
-                onPressed: () {
-                  Navigator.of(context).pushNamed('/tasks');
-                },
-                icon: const Icon(Icons.add, size: 17),
-                label: const Text(
-                  'Create Task',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w700,
-                    fontSize: 12,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  metric('$activeCount', 'Active Tasks'),
-                  const SizedBox(width: 6),
-                  metric('$verifiedCount', 'Verified Tasks'),
-                  const SizedBox(width: 6),
-                  metric('$correctionCount', 'Needs Correction'),
-                ],
-              ),
-              const SizedBox(height: 12),
-              panel(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                onRefresh: loadData,
+                child: ListView(
+                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 18),
                   children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        sectionLabel('Integrity Index'),
-                        Text(
-                          resolvedCount == 0 ? '--' : '$integrityIndex%',
-                          style: const TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w800,
-                            color: AppTheme.text,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(5),
-                      child: LinearProgressIndicator(
-                        value: resolvedCount == 0
-                            ? 0
-                            : integrityIndex / 100,
-                        minHeight: 4,
-                        backgroundColor: AppTheme.background,
-                        color: AppTheme.lime,
+                    sectionLabel('Command Center'),
+                    const SizedBox(height: 6),
+                    const Text(
+                      'Proof, not promises.',
+                      style: TextStyle(
+                        color: AppTheme.text,
+                        fontSize: 20,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -0.5,
                       ),
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 4),
                     const Text(
-                      'Based on completed verification outcomes.',
+                      'Turn tasks into verifiable outcomes.',
                       style: TextStyle(
                         color: AppTheme.secondaryText,
-                        fontSize: 10,
+                        fontSize: 11,
                       ),
                     ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 12),
-              panel(
-                child: Row(
-                  children: [
-                    Expanded(
+                    const SizedBox(height: 13),
+                    ElevatedButton.icon(
+                      onPressed: () {
+                        Navigator.of(context).pushNamed('/tasks');
+                      },
+                      icon: const Icon(Icons.add, size: 17),
+                      label: const Text(
+                        'Create Task',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        metric('$activeCount', 'Active Tasks'),
+                        const SizedBox(width: 6),
+                        metric('$verifiedCount', 'Verified Tasks'),
+                        const SizedBox(width: 6),
+                        metric('$correctionCount', 'Needs Correction'),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    panel(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          sectionLabel('Current Streak'),
-                          const SizedBox(height: 5),
-                          Text(
-                            '$currentStreak ${currentStreak == 1 ? 'Day' : 'Days'}',
-                            style: const TextStyle(
-                              color: AppTheme.text,
-                              fontSize: 16,
-                              fontWeight: FontWeight.w800,
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              sectionLabel('Integrity Index'),
+                              Text(
+                                resolvedCount == 0 ? '--' : '$integrityIndex%',
+                                style: const TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w800,
+                                  color: AppTheme.text,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(5),
+                            child: LinearProgressIndicator(
+                              value: resolvedCount == 0
+                                  ? 0
+                                  : integrityIndex / 100,
+                              minHeight: 4,
+                              backgroundColor: AppTheme.background,
+                              color: AppTheme.lime,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          const Text(
+                            'Based on completed verification outcomes.',
+                            style: TextStyle(
+                              color: AppTheme.secondaryText,
+                              fontSize: 10,
                             ),
                           ),
                         ],
                       ),
                     ),
-                    Container(
-                      width: 1,
-                      height: 34,
-                      color: AppTheme.elevated,
-                    ),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                    const SizedBox(height: 12),
+                    panel(
+                      child: Row(
                         children: [
-                          sectionLabel('Daily Target'),
-                          const SizedBox(height: 5),
-                          Text(
-                            '${verifiedToday > 0 ? 1 : 0} / 1 Verified',
-                            style: const TextStyle(
-                              color: AppTheme.text,
-                              fontSize: 13,
-                              fontWeight: FontWeight.w700,
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                sectionLabel('Current Streak'),
+                                const SizedBox(height: 5),
+                                Text(
+                                  '$currentStreak ${currentStreak == 1 ? 'Day' : 'Days'}',
+                                  style: const TextStyle(
+                                    color: AppTheme.text,
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Container(
+                            width: 1,
+                            height: 34,
+                            color: AppTheme.elevated,
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                sectionLabel('Daily Target'),
+                                const SizedBox(height: 5),
+                                Text(
+                                  '${verifiedToday > 0 ? 1 : 0} / 1 Verified',
+                                  style: const TextStyle(
+                                    color: AppTheme.text,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                         ],
                       ),
                     ),
+                    const SizedBox(height: 16),
+                    sectionLabel('Recent Activity'),
+                    const SizedBox(height: 8),
+                    if (events.isEmpty)
+                      panel(
+                        child: const Text(
+                          'No verification events recorded yet. '
+                          'Create a task and submit evidence to get started.',
+                          style: TextStyle(
+                            color: AppTheme.secondaryText,
+                            fontSize: 11,
+                            height: 1.5,
+                          ),
+                        ),
+                      )
+                    else
+                      ...events.take(3).map(activity),
                   ],
                 ),
               ),
-              const SizedBox(height: 16),
-              sectionLabel('Recent Activity'),
-              const SizedBox(height: 8),
-              if (events.isEmpty)
-                panel(
-                  child: const Text(
-                    'No verification events recorded yet. '
-                        'Create a task and submit evidence to get started.',
-                    style: TextStyle(
-                      color: AppTheme.secondaryText,
-                      fontSize: 11,
-                      height: 1.5,
-                    ),
-                  ),
-                )
-              else
-                ...events.take(3).map(activity),
-            ],
-          ),
-        ),
       ),
     );
   }

@@ -24,13 +24,6 @@ class _LedgerScreenState extends State<LedgerScreen> {
     loadEvents();
   }
 
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    // Refresh when returning to the Ledger tab.
-    loadEvents();
-  }
-
   Future<void> loadEvents() async {
     final prefs = await SharedPreferences.getInstance();
     final stored = prefs.getString(ledgerKey);
@@ -69,6 +62,19 @@ class _LedgerScreenState extends State<LedgerScreen> {
     final minute = local.minute.toString().padLeft(2, '0');
 
     return '$day/$month/${local.year}  $hour:$minute';
+  }
+
+  void openEvidenceCourt(Map<String, dynamic> event) {
+    final reportId = (event['id'] ?? '').toString();
+
+    if (reportId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('This event has no report ID.')),
+      );
+      return;
+    }
+
+    Navigator.of(context).pushNamed('/evidence-court', arguments: reportId);
   }
 
   @override
@@ -158,7 +164,7 @@ class _LedgerScreenState extends State<LedgerScreen> {
                     ),
                   ),
                   const SizedBox(height: 16),
-                  for (final event in events) ...[
+                  for (final event in events)
                     Card(
                       margin: const EdgeInsets.only(bottom: 10),
                       child: Padding(
@@ -189,10 +195,14 @@ class _LedgerScreenState extends State<LedgerScreen> {
                                   ),
                                 ),
                                 const SizedBox(width: 6),
-                                const Icon(
-                                  Icons.circle,
-                                  color: AppTheme.lime,
-                                  size: 7,
+                                Icon(
+                                  event['status'] == 'Verified'
+                                      ? Icons.check_circle
+                                      : Icons.info_outline,
+                                  color: event['status'] == 'Verified'
+                                      ? AppTheme.lime
+                                      : AppTheme.secondaryText,
+                                  size: 16,
                                 ),
                               ],
                             ),
@@ -225,11 +235,19 @@ class _LedgerScreenState extends State<LedgerScreen> {
                                 fontFamily: 'monospace',
                               ),
                             ),
+                            const SizedBox(height: 12),
+                            SizedBox(
+                              width: double.infinity,
+                              child: OutlinedButton.icon(
+                                onPressed: () => openEvidenceCourt(event),
+                                icon: const Icon(Icons.gavel, size: 17),
+                                label: const Text('Open Evidence Court'),
+                              ),
+                            ),
                           ],
                         ),
                       ),
                     ),
-                  ],
                 ],
               ),
             ),

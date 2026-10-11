@@ -1,29 +1,38 @@
-import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../core/app_theme.dart';
+import '../services/gemini_verification_service.dart';
+import '../services/supabase_database_service.dart';
 
 class TaskDetailScreen extends StatefulWidget {
   final String taskId;
 
-  const TaskDetailScreen({super.key, required this.taskId});
+  const TaskDetailScreen({
+    super.key,
+    required this.taskId,
+  });
 
   @override
   State<TaskDetailScreen> createState() => _TaskDetailScreenState();
 }
 
 class _TaskDetailScreenState extends State<TaskDetailScreen> {
-  static const tasksKey = 'prooflock_tasks';
-  static const ledgerKey = 'prooflock_ledger';
-
+  final database = SupabaseDatabaseService.instance;
   final evidenceController = TextEditingController();
+  final urlController = TextEditingController();
 
   Map<String, dynamic>? task;
+  Uint8List? imageBytes;
+  String? imageName;
+  String imageMimeType = 'image/jpeg';
+
   bool loading = true;
   bool submitting = false;
   String? resultMessage;
+  String? lastReportId;
 
   @override
   void initState() {
@@ -31,122 +40,167 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
     loadTask();
   }
 
+  // LOAD TASK FROM SUPABASE
   Future<void> loadTask() async {
-    final prefs = await SharedPreferences.getInstance();
-    final stored = prefs.getString(tasksKey);
+    try {
+      final result = await database.getTask(widget.taskId);
 
-    if (stored != null) {
-      try {
-        final items = (jsonDecode(stored) as List).map(
-          (item) => Map<String, dynamic>.from(item as Map),
-        );
+      if (!mounted) return;
 
-        for (final item in items) {
-          if (item['id']?.toString() == widget.taskId) {
-            task = item;
-            break;
-          }
-        }
-      } catch (_) {
-        task = null;
-      }
-    }
+      setState(() {
+        task = result;
+        loading = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
 
-    if (mounted) {
       setState(() => loading = false);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not load task: $error')),
+      );
     }
   }
 
+  // SELECT IMAGE EVIDENCE
+  Future<void> pickImage() async {
+    try {
+      final picked = await ImagePicker().pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 80,
+        maxWidth: 1800,
+      );
+
+      if (picked == null) return;
+
+      final bytes = await picked.readAsBytes();
+      final filename = picked.name.toLowerCase();
+
+      if (!mounted) return;
+
+      setState(() {
+        imageBytes = bytes;
+        imageName = picked.name;
+        imageMimeType = filename.endsWith('.png')
+            ? 'image/png'
+            : filename.endsWith('.webp')
+            ? 'image/webp'
+            : 'image/jpeg';
+      });
+    } catch (error) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not select image: $error')),
+      );
+    }
+  }
+
+  // SUBMIT EVIDENCE, ASSESS WITH GEMINI, SAVE TO SUPABASE
   Future<void> submitEvidence() async {
     if (task == null || submitting) return;
 
     final evidence = evidenceController.text.trim();
+    final url = urlController.text.trim();
 
-    if (evidence.length < 20) {
+    if (evidence.isEmpty && url.isEmpty && imageBytes == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Enter at least 20 characters of evidence.'),
+          content: Text('Provide text, an image, or a supporting URL.'),
         ),
       );
       return;
     }
 
-    setState(() => submitting = true);
+    setState(() {
+      submitting = true;
+      resultMessage = null;
+    });
 
     try {
-      final criteria = (task!['criteria'] ?? '').toString();
+      final assessment = await GeminiVerificationService.verify(
+        taskTitle: (task!['title'] ?? 'Untitled task').toString(),
+        criteria: (task!['criteria'] ?? '').toString(),
+        evidenceText: evidence,
+        evidenceUrl: url.isEmpty ? null : url,
+        imageBytes: imageBytes,
+        imageMimeType: imageMimeType,
+      );
 
-      // Transparent demo rule:
-      // Evidence must contain at least one meaningful word
-      // from the task's verification criteria.
-      final words = criteria
-          .toLowerCase()
-          .split(RegExp(r'[^a-z0-9]+'))
-          .where((word) => word.length >= 4)
-          .toSet();
+      final verdict = assessment['verdict'].toString();
 
-      final evidenceLower = evidence.toLowerCase();
-      final matchedWords = words
-          .where((word) => evidenceLower.contains(word))
-          .toList();
+      final status = switch (verdict) {
+        'VERIFIED' => 'Verified',
+        'NEEDS_CORRECTION' => 'Needs Correction',
+        _ => 'Unable to Verify',
+      };
 
-      final verified = matchedWords.isNotEmpty;
-      final status = verified ? 'Verified' : 'Needs Correction';
+      final reportId =
+      DateTime.now().microsecondsSinceEpoch.toString();
 
-      final prefs = await SharedPreferences.getInstance();
+      // Update the task in Supabase.
+      await database.updateTaskStatus(
+        taskId: widget.taskId,
+        status: status,
+      );
 
-      final storedTasks = prefs.getString(tasksKey);
-      final List<dynamic> taskList = storedTasks == null
-          ? []
-          : jsonDecode(storedTasks) as List;
-
-      final updatedTasks = taskList.map((item) {
-        final current = Map<String, dynamic>.from(item as Map);
-
-        if (current['id']?.toString() == widget.taskId) {
-          current['status'] = status;
-          current['lastEvidence'] = evidence;
-          current['lastCheckedAt'] = DateTime.now().toIso8601String();
-        }
-
-        return current;
-      }).toList();
-
-      await prefs.setString(tasksKey, jsonEncode(updatedTasks));
-
-      final storedLedger = prefs.getString(ledgerKey);
-      final List<dynamic> events = storedLedger == null
-          ? []
-          : jsonDecode(storedLedger) as List;
-
-      events.insert(0, {
-        'id': DateTime.now().microsecondsSinceEpoch.toString(),
+      // Save the verification report in Supabase.
+      await database.saveReport({
+        'reportId': reportId,
         'taskId': widget.taskId,
         'title': task!['title'],
-        'event': 'Evidence submitted',
+        'verdict': verdict,
         'status': status,
-        'evidence': evidence,
-        'matchedCriteriaWords': matchedWords,
-        'timestamp': DateTime.now().toIso8601String(),
+        'evidenceText': evidence,
+        'evidenceUrl': url.isEmpty ? null : url,
+        'imageName': imageName,
+        'summary': assessment['summary'],
+        'confidence': assessment['confidence'],
+        'criteriaResults': assessment['criteriaResults'] ?? [],
+        'missingCriteria': assessment['missingCriteria'] ?? [],
+        'challenges': assessment['challenges'] ?? [],
+        'followUpQuestion': assessment['followUpQuestion'],
+        'limitations': assessment['limitations'] ?? [],
       });
-
-      await prefs.setString(ledgerKey, jsonEncode(events));
 
       if (!mounted) return;
 
+      final challenges =
+      (assessment['challenges'] as List? ?? [])
+          .map((item) => item.toString())
+          .toList();
+
+      final confidence = assessment['confidence'];
+      final confidenceText = confidence is num
+          ? '${(confidence * 100).round()}%'
+          : 'Unavailable';
+
       setState(() {
-        task!['status'] = status;
-        task!['lastEvidence'] = evidence;
-        resultMessage = verified
-            ? 'The evidence passed the configured text-matching check.'
-            : 'No meaningful criteria words matched. Revise your evidence and try again.';
+        task = {
+          ...task!,
+          'status': status,
+        };
+
+        lastReportId = reportId;
+
+        resultMessage =
+        '$verdict\n\n'
+            '${assessment['summary']}\n\n'
+            'Assessment confidence: $confidenceText\n\n'
+            '${challenges.isEmpty ? 'No corrective challenges returned.' : 'Corrective challenges:\n• ${challenges.join('\n• ')}'}';
       });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Assessment and report saved to Supabase.'),
+        ),
+      );
     } catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not save evidence: $error')),
-        );
-      }
+      if (!mounted) return;
+
+      setState(() {
+        resultMessage = 'Assessment or database save failed:\n$error';
+      });
     } finally {
       if (mounted) {
         setState(() => submitting = false);
@@ -157,28 +211,67 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
   @override
   void dispose() {
     evidenceController.dispose();
+    urlController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     if (loading) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
     }
 
     if (task == null) {
       return Scaffold(
         appBar: AppBar(title: const Text('TASK DETAIL')),
-        body: const Center(
-          child: Text('Task not found. Return to the Task Registry.'),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.assignment_late_outlined,
+                  size: 44,
+                  color: AppTheme.secondaryText,
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  'Task not found',
+                  style: TextStyle(
+                    color: AppTheme.text,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'The task may have been deleted, or you may be signed '
+                      'in with a different account.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: AppTheme.secondaryText),
+                ),
+                const SizedBox(height: 16),
+                FilledButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Return to Tasks'),
+                ),
+                TextButton(
+                  onPressed: loadTask,
+                  child: const Text('Retry'),
+                ),
+              ],
+            ),
+          ),
         ),
       );
     }
 
-    final status = (task!['status'] ?? 'Pending').toString();
-
     return Scaffold(
-      appBar: AppBar(title: const Text('TASK DETAIL')),
+      appBar: AppBar(
+        title: const Text('TASK DETAIL'),
+      ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -199,7 +292,10 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
           const SizedBox(height: 8),
           Text(
             'Task ID: ${widget.taskId}',
-            style: const TextStyle(color: AppTheme.secondaryText, fontSize: 11),
+            style: const TextStyle(
+              color: AppTheme.secondaryText,
+              fontSize: 11,
+            ),
           ),
           const SizedBox(height: 16),
           Card(
@@ -217,15 +313,19 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                     ),
                   ),
                   const SizedBox(height: 10),
-                  Text(task!['criteria'].toString()),
+                  Text((task!['criteria'] ?? '').toString()),
                   const SizedBox(height: 14),
                   const Text(
-                    'Current status',
-                    style: TextStyle(color: AppTheme.secondaryText),
+                    'CURRENT STATUS',
+                    style: TextStyle(
+                      color: AppTheme.secondaryText,
+                    ),
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    status.toUpperCase(),
+                    (task!['status'] ?? 'Pending')
+                        .toString()
+                        .toUpperCase(),
                     style: const TextStyle(
                       color: AppTheme.lime,
                       fontWeight: FontWeight.w800,
@@ -237,7 +337,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
           ),
           const SizedBox(height: 16),
           const Text(
-            'SUBMIT TEXT EVIDENCE',
+            'TEXT EVIDENCE',
             style: TextStyle(
               color: AppTheme.lime,
               fontSize: 10,
@@ -250,16 +350,77 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
             controller: evidenceController,
             maxLines: 5,
             decoration: const InputDecoration(
-              hintText: 'Describe your evidence and what it demonstrates...',
+              hintText: 'Describe the evidence and what it demonstrates...',
               alignLabelWithHint: true,
+              border: OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 16),
+          const Text(
+            'IMAGE EVIDENCE',
+            style: TextStyle(
+              color: AppTheme.lime,
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 1,
+            ),
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: submitting ? null : pickImage,
+            icon: const Icon(Icons.image_outlined),
+            label: Text(
+              imageName == null ? 'Attach Image' : imageName!,
+            ),
+          ),
+          if (imageBytes != null) ...[
+            const SizedBox(height: 8),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: Image.memory(
+                imageBytes!,
+                height: 160,
+                fit: BoxFit.contain,
+              ),
+            ),
+            TextButton(
+              onPressed: submitting
+                  ? null
+                  : () {
+                setState(() {
+                  imageBytes = null;
+                  imageName = null;
+                  imageMimeType = 'image/jpeg';
+                });
+              },
+              child: const Text('Remove image'),
+            ),
+          ],
+          const SizedBox(height: 16),
+          const Text(
+            'SUPPORTING URL (OPTIONAL)',
+            style: TextStyle(
+              color: AppTheme.lime,
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 1,
+            ),
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: urlController,
+            keyboardType: TextInputType.url,
+            decoration: const InputDecoration(
+              hintText: 'https://github.com/your-project',
+              prefixIcon: Icon(Icons.link),
               border: OutlineInputBorder(),
             ),
           ),
           const SizedBox(height: 8),
           const Text(
-            'Demo verification checks for at least one meaningful word '
-            'shared with the criteria. This does not prove that the '
-            'claimed work was actually completed.',
+            'The URL is supplied as context to Gemini. This app does not '
+                'fetch the linked page, and an image or URL alone may not '
+                'prove real-world completion.',
             style: TextStyle(
               color: AppTheme.secondaryText,
               fontSize: 11,
@@ -269,20 +430,46 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
           const SizedBox(height: 12),
           FilledButton.icon(
             onPressed: submitting ? null : submitEvidence,
-            icon: const Icon(Icons.fact_check_outlined),
-            label: Text(submitting ? 'Checking...' : 'Submit & Verify'),
+            icon: submitting
+                ? const SizedBox(
+              height: 16,
+              width: 16,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+              ),
+            )
+                : const Icon(Icons.fact_check_outlined),
+            label: Text(
+              submitting
+                  ? 'Assessing with Gemini...'
+                  : 'Submit & Verify',
+            ),
           ),
           if (resultMessage != null) ...[
             const SizedBox(height: 12),
             Card(
               child: Padding(
                 padding: const EdgeInsets.all(14),
-                child: Text(
+                child: SelectableText(
                   resultMessage!,
-                  style: const TextStyle(color: AppTheme.text, height: 1.5),
+                  style: const TextStyle(
+                    color: AppTheme.text,
+                    height: 1.6,
+                  ),
                 ),
               ),
             ),
+            if (lastReportId != null)
+              OutlinedButton.icon(
+                onPressed: () {
+                  Navigator.of(context).pushNamed(
+                    '/evidence-court',
+                    arguments: lastReportId,
+                  );
+                },
+                icon: const Icon(Icons.gavel),
+                label: const Text('Open Evidence Court'),
+              ),
           ],
         ],
       ),

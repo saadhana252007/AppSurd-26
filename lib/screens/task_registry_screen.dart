@@ -1,10 +1,7 @@
-
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/app_theme.dart';
+import '../services/supabase_database_service.dart';
 
 class TaskRegistryScreen extends StatefulWidget {
   const TaskRegistryScreen({super.key});
@@ -14,10 +11,11 @@ class TaskRegistryScreen extends StatefulWidget {
 }
 
 class _TaskRegistryScreenState extends State<TaskRegistryScreen> {
-  static const String storageKey = 'prooflock_tasks';
+  final database = SupabaseDatabaseService.instance;
 
   List<Map<String, dynamic>> tasks = [];
   bool loading = true;
+  bool creating = false;
   String searchQuery = '';
 
   @override
@@ -26,31 +24,33 @@ class _TaskRegistryScreenState extends State<TaskRegistryScreen> {
     loadTasks();
   }
 
+  // FETCH TASKS FROM SUPABASE
   Future<void> loadTasks() async {
-    final prefs = await SharedPreferences.getInstance();
-    final stored = prefs.getString(storageKey);
-
-    if (stored != null) {
-      try {
-        final decoded = jsonDecode(stored) as List;
-        tasks = decoded
-            .map((item) => Map<String, dynamic>.from(item as Map))
-            .toList();
-      } catch (_) {
-        tasks = [];
-      }
-    }
-
     if (mounted) {
+      setState(() => loading = true);
+    }
+
+    try {
+      final result = await database.getTasks();
+
+      if (mounted) {
+        setState(() {
+          tasks = result;
+          loading = false;
+        });
+      }
+    } catch (e) {
+      if (!mounted) return;
+
       setState(() => loading = false);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not load tasks: $e')),
+      );
     }
   }
 
-  Future<void> saveTasks() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(storageKey, jsonEncode(tasks));
-  }
-
+  // CREATE TASK IN SUPABASE
   Future<void> createTask() async {
     final titleController = TextEditingController();
     final criteriaController = TextEditingController();
@@ -120,24 +120,33 @@ class _TaskRegistryScreenState extends State<TaskRegistryScreen> {
 
     if (result == null || !mounted) return;
 
-    final task = <String, dynamic>{
-      'id': DateTime.now().microsecondsSinceEpoch.toString(),
-      'title': result['title']!,
-      'criteria': result['criteria']!,
-      'status': 'Pending',
-      'createdAt': DateTime.now().toIso8601String(),
-    };
+    setState(() => creating = true);
 
-    setState(() {
-      tasks.insert(0, task);
-    });
-
-    await saveTasks();
-
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Task created successfully.')),
+    try {
+      await database.createTask(
+        title: result['title']!,
+        criteria: result['criteria']!,
       );
+
+      await loadTasks();
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Task saved to Supabase successfully.'),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not create task: $e')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => creating = false);
+      }
     }
   }
 
@@ -158,6 +167,13 @@ class _TaskRegistryScreenState extends State<TaskRegistryScreen> {
             letterSpacing: 1,
           ),
         ),
+        actions: [
+          IconButton(
+            onPressed: loading ? null : loadTasks,
+            icon: const Icon(Icons.refresh),
+            tooltip: 'Refresh tasks',
+          ),
+        ],
       ),
       body: SafeArea(
         child: Column(
@@ -234,7 +250,9 @@ class _TaskRegistryScreenState extends State<TaskRegistryScreen> {
                 ),
               )
                   : ListView.separated(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                padding: const EdgeInsets.fromLTRB(
+                  16, 0, 16, 16,
+                ),
                 itemCount: filteredTasks.length,
                 separatorBuilder: (_, _) =>
                 const SizedBox(height: 9),
@@ -289,10 +307,18 @@ class _TaskRegistryScreenState extends State<TaskRegistryScreen> {
         ),
       ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: createTask,
-        icon: const Icon(Icons.add),
-        label: const Text('New Task'),
+        onPressed: creating ? null : createTask,
+        icon: creating
+            ? const SizedBox(
+          width: 18,
+          height: 18,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        )
+            : const Icon(Icons.add),
+        label: Text(creating ? 'Saving...' : 'New Task'),
       ),
     );
   }
 }
+
+//flutter run -d chrome --dart-define="SUPABASE_URL=https://hxfznysoxntmizfjxcyw.supabase.co" --dart-define="sb_publishable_oM9_HFoQwlmAyOY-ML6xAA_yRs8MKhz

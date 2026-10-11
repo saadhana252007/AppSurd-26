@@ -1,4 +1,3 @@
-
 import 'package:flutter/material.dart';
 
 class AppTheme {
@@ -46,9 +45,7 @@ class AppTheme {
           backgroundColor: lime,
           foregroundColor: background,
           minimumSize: const Size(double.infinity, 48),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
-          ),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         ),
       ),
       textTheme: const TextTheme(
@@ -62,10 +59,7 @@ class AppTheme {
           fontWeight: FontWeight.w600,
           color: text,
         ),
-        bodyMedium: TextStyle(
-          fontSize: 14,
-          color: secondaryText,
-        ),
+        bodyMedium: TextStyle(fontSize: 14, color: secondaryText),
       ),
     );
   }
